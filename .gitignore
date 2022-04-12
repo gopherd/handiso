@@ -3,3 +3,7 @@ src/*.o
 src/check
 index_flop
 unindex_flop
+
+build/
+dist/
+*.egg-info/

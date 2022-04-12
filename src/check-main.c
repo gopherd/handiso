@@ -91,6 +91,9 @@ int main(int argc, char ** argv) {
   hand_indexer_t preflop_indexer;
   assert(hand_indexer_init(1, (uint8_t[]){2}, &preflop_indexer));
 
+  hand_indexer_t flop_public_indexer;
+  assert(hand_indexer_init(1, (uint8_t[]){3}, &flop_public_indexer));
+
   hand_indexer_t flop_indexer;
   assert(hand_indexer_init(2, (uint8_t[]){2, 3}, &flop_indexer));
 
@@ -100,6 +103,8 @@ int main(int argc, char ** argv) {
   hand_indexer_t river_indexer;
   assert(hand_indexer_init(4, (uint8_t[]){2, 3, 1, 1}, &river_indexer));
 
+  printf("flop_public_size:" " %"PRIhand_index "\n",
+      flop_public_indexer.round_size[0]);
   printf("sizes:" " %"PRIhand_index " %"PRIhand_index " %"PRIhand_index " %"PRIhand_index "\n",
       river_indexer.round_size[0], river_indexer.round_size[1],
       river_indexer.round_size[2], river_indexer.round_size[3]);
@@ -113,6 +118,7 @@ int main(int argc, char ** argv) {
       river_indexer.permutations[2], river_indexer.permutations[3]);
 
   assert(hand_indexer_size(&preflop_indexer, 0) == 169);
+  assert(hand_indexer_size(&flop_public_indexer, 0) == 1755);
   assert(hand_indexer_size(&flop_indexer, 0) == 169);
   assert(hand_indexer_size(&turn_indexer, 0) == 169);
   assert(hand_indexer_size(&river_indexer, 0) == 169);

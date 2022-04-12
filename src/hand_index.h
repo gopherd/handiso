@@ -15,6 +15,8 @@
 #include <stddef.h>
 #include "deck.h"
 
+#define HAND_VERSION 1
+
 #define MAX_ROUNDS           8
 
 typedef uint64_t hand_index_t;
