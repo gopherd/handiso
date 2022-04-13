@@ -11,8 +11,6 @@
 #include <Python.h>
 
 struct hand_indexer_s {
-  PyObject_HEAD
-
   uint8_t cards_per_round[MAX_ROUNDS], round_start[MAX_ROUNDS];
   uint_fast32_t rounds, configurations[MAX_ROUNDS], permutations[MAX_ROUNDS];
   hand_index_t round_size[MAX_ROUNDS];
@@ -24,8 +22,6 @@ struct hand_indexer_s {
 };
 
 struct hand_indexer_state_s {
-  PyObject_HEAD
-
   uint_fast32_t suit_index[SUITS];
   uint_fast32_t suit_multiplier[SUITS];
   uint_fast32_t round, permutation_index, permutation_multiplier;

@@ -2,24 +2,17 @@
 #include <Python.h>
 #include "src/hand_index.h"
 
-typedef struct {
-	PyObject_HEAD
-	hand_indexer_t indexer;
-} IndexerObject;
+static PyObject *HandisoError;
 
 typedef struct {
 	PyObject_HEAD
 	hand_indexer_state_t state;
-} IndexerStateObject;
+} StateObject;
 
-/**
- * Free a hand indexer.
- */
-
-static void py_hand_indexer_dealloc(IndexerObject *self) {
-	hand_indexer_free(&self->indexer);
-	Py_TYPE(self)->tp_free((PyObject *) self);
-}
+typedef struct {
+	PyObject_HEAD
+	hand_indexer_t indexer;
+} IndexerObject;
 
 static int helper_parse_uint8s(PyObject* list, uint8_t* dst) {
 	Py_ssize_t n = PyList_Size(list);
@@ -39,6 +32,38 @@ static int helper_parse_uint8s(PyObject* list, uint8_t* dst) {
 		dst[i] = (uint8_t)(value);
 	}
 	return n;
+}
+
+/**
+ * Free a hand indexer state.
+ */
+static void py_hand_indexer_state_dealloc(IndexerObject *self) {
+	Py_TYPE(self)->tp_free((PyObject *) self);
+}
+
+/**
+ * Initialize a hand index state.  This is used for incrementally indexing a hand as
+ * new rounds are dealt and determining if a hand is canonical.
+ *
+ * @param state
+ */
+static int py_hand_indexer_state_init(StateObject *self, PyObject *args, PyObject *kwds) {
+	PyObject* pyindexer = NULL;
+	if (!PyArg_ParseTuple(args, "O", &pyindexer)) {
+		return -1;
+	}
+	IndexerObject* indexer = (IndexerObject*)(pyindexer);
+	hand_indexer_state_init(&indexer->indexer, &self->state);
+	return 0;
+}
+
+
+/**
+ * Free a hand indexer.
+ */
+static void py_hand_indexer_dealloc(IndexerObject *self) {
+	hand_indexer_free(&self->indexer);
+	Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
 /**
@@ -67,31 +92,99 @@ static int py_hand_indexer_init(IndexerObject *self, PyObject *args, PyObject *k
 }
 
 /**
+ * Get rounds of index
+ *
+ * @returns rounds of index
+ */
+static PyObject* py_hand_indexer_rounds(IndexerObject *self, PyObject *Py_UNUSED(ignored)) {
+    return PyLong_FromLong(self->indexer.rounds);
+}
+
+/**
+ * Get configurations at round
+ *
+ * @param round 
+ * @returns configurations at round
+ */
+static PyObject* py_hand_indexer_configurations(IndexerObject *self, PyObject *args) {
+	int round = 0;
+	if (!PyArg_ParseTuple(args, "i", &round)) {
+		PyErr_SetString(HandisoError, "Bad argument");
+		return NULL;
+	}
+	if (round < 0 || (uint_fast32_t)(round) >= self->indexer.rounds) {
+		return PyLong_FromLong(0);
+	}
+    return PyLong_FromLong(self->indexer.configurations[round]);
+}
+
+/**
+ * Get permutations at round
+ *
+ * @param round 
+ * @returns permutations at round
+ */
+static PyObject* py_hand_indexer_permutations(IndexerObject *self, PyObject *args) {
+	int round = 0;
+	if (!PyArg_ParseTuple(args, "i", &round)) {
+		PyErr_SetString(HandisoError, "Bad argument");
+		return NULL;
+	}
+	if (round < 0 || (uint_fast32_t)(round) >= self->indexer.rounds) {
+		return PyLong_FromLong(0);
+	}
+    return PyLong_FromLong(self->indexer.permutations[round]);
+}
+
+/**
+ * Get size of round
+ *
+ * @param round 
+ * @returns size of round
+ */
+static PyObject* py_hand_indexer_round_size(IndexerObject *self, PyObject *args) {
+	int round = 0;
+	if (!PyArg_ParseTuple(args, "i", &round)) {
+		PyErr_SetString(HandisoError, "Bad argument");
+		return NULL;
+	}
+	if (round < 0 || (uint_fast32_t)(round) >= self->indexer.rounds) {
+		return PyLong_FromLong(0);
+	}
+    return PyLong_FromLong(self->indexer.round_size[round]);
+}
+
+/**
+ * Get cards number at round
+ *
+ * @param round 
+ * @returns cards number at round
+ */
+static PyObject* py_hand_indexer_cards(IndexerObject *self, PyObject *args) {
+	int round = 0;
+	if (!PyArg_ParseTuple(args, "i", &round)) {
+		PyErr_SetString(HandisoError, "Bad argument");
+		return NULL;
+	}
+	if (round < 0 || (uint_fast32_t)(round) >= self->indexer.rounds) {
+		return PyLong_FromLong(0);
+	}
+    return PyLong_FromLong(self->indexer.cards_per_round[round]);
+}
+
+/**
+ * Get total size at specific round
+ *
  * @param round 
  * @returns size of index for hands on round
  */
 static PyObject* py_hand_indexer_size(IndexerObject *self, PyObject *args) {
 	int round = 0;
 	if (!PyArg_ParseTuple(args, "i", &round)) {
+		PyErr_SetString(HandisoError, "Bad argument");
 		return NULL;
 	}
 	return PyLong_FromLong(hand_indexer_size(&self->indexer, round));
-}
-
-/**
- * Initialize a hand index state.  This is used for incrementally indexing a hand as
- * new rounds are dealt and determining if a hand is canonical.
- *
- * @param state
- */
-static PyObject* py_hand_indexer_state_init(IndexerObject *self, PyObject *args) {
-	PyObject* pystate = NULL;
-	if (!PyArg_ParseTuple(args, "O", &pystate)) {
-		return NULL;
-	}
-	IndexerStateObject* state = (IndexerStateObject*)(pystate);
-	hand_indexer_state_init(&self->indexer, &state->state);
-	Py_RETURN_NONE;
 }
 
 /**
@@ -103,14 +196,21 @@ static PyObject* py_hand_indexer_state_init(IndexerObject *self, PyObject *args)
 static PyObject* py_hand_index_last(IndexerObject *self, PyObject *args) {
 	PyObject* pycards = NULL;
 	if (!PyArg_ParseTuple(args, "O", &pycards)) {
+		PyErr_SetString(HandisoError, "Bad argument");
 		return NULL;
 	}
 	if (!PyList_Check(pycards)) {
+		PyErr_SetString(HandisoError, "Bad argument at 0: list wanted");
 		return NULL;
 	}
 	uint8_t cards[MAX_ROUNDS];
 	int n = helper_parse_uint8s(pycards, cards);
 	if (n < 1) {
+		if (n < 0) {
+			PyErr_SetString(HandisoError, "Bad argument at 0: list contains non-integer item");
+		} else {
+			PyErr_SetString(HandisoError, "Bad argument at 0: length of list must be greater than 0");
+		}
 		return NULL;
 	}
 	return PyLong_FromLongLong(hand_index_last(&self->indexer, cards));
@@ -127,17 +227,28 @@ static PyObject* py_hand_index_next_round(IndexerObject *self, PyObject *args) {
 	PyObject* pycards = NULL;
 	PyObject* pystate = NULL;
 	if (!PyArg_ParseTuple(args, "OO", &pycards, &pystate)) {
+		PyErr_SetString(HandisoError, "Bad argument");
 		return NULL;
 	}
 	if (!PyList_Check(pycards)) {
+		PyErr_SetString(HandisoError, "Bad argument at 0: list wanted");
 		return NULL;
 	}
 	uint8_t cards[MAX_ROUNDS];
 	int n = helper_parse_uint8s(pycards, cards);
 	if (n < 1) {
+		if (n < 0) {
+			PyErr_SetString(HandisoError, "Bad argument at 0: list contains non-integer item");
+		} else {
+			PyErr_SetString(HandisoError, "Bad argument at 0: length of list must be greater than 0");
+		}
 		return NULL;
 	}
-	IndexerStateObject* state = (IndexerStateObject*)(pystate);
+	StateObject* state = (StateObject*)(pystate);
+	if (state->state.round+1 >= self->indexer.rounds) {
+		PyErr_SetString(HandisoError, "Bad argument at 1: round out of range");
+		return NULL;
+	}
 	return PyLong_FromLongLong(hand_index_next_round(&self->indexer, cards, &state->state));
 }
 
@@ -152,6 +263,7 @@ static PyObject* py_hand_unindex(IndexerObject *self, PyObject *args) {
 	int round = 0;
 	long long index = 0;
 	if (!PyArg_ParseTuple(args, "iL", &round, &index)) {
+		PyErr_SetString(HandisoError, "Bad argument");
 		return NULL;
 	}
 	uint8_t cards[MAX_ROUNDS];
@@ -166,8 +278,12 @@ static PyObject* py_hand_unindex(IndexerObject *self, PyObject *args) {
 }
 
 static PyMethodDef indexerMethods[] = {
+	{"rounds", (PyCFunction) py_hand_indexer_rounds, METH_VARARGS, "Get rounds of index"},
+	{"configurations", (PyCFunction) py_hand_indexer_configurations, METH_VARARGS, "Get configurations at round"},
+	{"permutations", (PyCFunction) py_hand_indexer_permutations, METH_VARARGS, "Get permutations at round"},
+	{"round_size", (PyCFunction) py_hand_indexer_round_size, METH_VARARGS, "Get size of round"},
+	{"cards", (PyCFunction) py_hand_indexer_cards, METH_VARARGS, "Get cards number at round"},
 	{"size", (PyCFunction) py_hand_indexer_size, METH_VARARGS, "Get size of index for hands on round"},
-	{"state_init", (PyCFunction) py_hand_indexer_state_init, METH_VARARGS, "Initialize a hand index state"},
 	{"index_last", (PyCFunction) py_hand_index_last, METH_VARARGS, "Index a hand on last round"},
 	{"index_next_round", (PyCFunction) py_hand_index_next_round, METH_VARARGS, "Incrementally index the next round"},
 	{"unindex", (PyCFunction) py_hand_unindex, METH_VARARGS, "Recover the canonical hand from a particular index"},
@@ -193,14 +309,16 @@ static PyTypeObject IndexerType = {
 /**
  * Wrap hand_indexer_state_t as a python object
  */
-static PyTypeObject IndexerStateType = {
+static PyTypeObject StateType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "handiso.IndexerState",
-    .tp_doc = "IndexerState holds dynamic state information for indexer",
-    .tp_basicsize = sizeof(IndexerStateObject),
+    .tp_name = "handiso.State",
+    .tp_doc = "State holds dynamic state information for indexer",
+    .tp_basicsize = sizeof(StateObject),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_new = PyType_GenericNew,
+    .tp_init = (initproc) py_hand_indexer_state_init,
+    .tp_dealloc = (destructor) py_hand_indexer_state_dealloc,
 };
 
 
@@ -213,12 +331,15 @@ static struct PyModuleDef handisomodule = {
 	.m_size = -1
 };
 
+/**
+ * Initialize the module.
+ */
 PyMODINIT_FUNC PyInit_handiso(void) {
 	PyObject *m;
     if (PyType_Ready(&IndexerType) < 0) {
         return NULL;
 	}
-    if (PyType_Ready(&IndexerStateType) < 0) {
+    if (PyType_Ready(&StateType) < 0) {
         return NULL;
 	}
 
@@ -227,6 +348,15 @@ PyMODINIT_FUNC PyInit_handiso(void) {
         return NULL;
 	}
 
+	HandisoError = PyErr_NewException("handiso.Error", NULL, NULL);
+    Py_XINCREF(HandisoError);
+    if (PyModule_AddObject(m, "error", HandisoError) < 0) {
+        Py_XDECREF(HandisoError);
+        Py_CLEAR(HandisoError);
+        Py_DECREF(m);
+        return NULL;
+    }
+
     Py_INCREF(&IndexerType);
     if (PyModule_AddObject(m, "Indexer", (PyObject *) &IndexerType) < 0) {
         Py_DECREF(&IndexerType);
@@ -234,9 +364,9 @@ PyMODINIT_FUNC PyInit_handiso(void) {
         return NULL;
     }
 
-    Py_INCREF(&IndexerStateType);
-    if (PyModule_AddObject(m, "IndexerState", (PyObject *) &IndexerStateType) < 0) {
-        Py_DECREF(&IndexerStateType);
+    Py_INCREF(&StateType);
+    if (PyModule_AddObject(m, "State", (PyObject *) &StateType) < 0) {
+        Py_DECREF(&StateType);
         Py_DECREF(m);
         return NULL;
     }
