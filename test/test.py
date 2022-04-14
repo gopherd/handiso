@@ -6,10 +6,9 @@ import random
 import handiso
 
 SUITS = 4
-RANK = 13
+RANKS = 13
 CARDS = 13*4
 
-"""
 def get_suit(card):
     return card&3
 
@@ -18,6 +17,8 @@ def get_rank(card):
 
 def make_card(suit, rank):
     return rank<<2 | suit
+
+"""
 
 def nth_bit(used, bit):
     # TODO
@@ -100,6 +101,8 @@ def test_random(indexer):
 """
 
 def main():
+    print("cards:", [make_card(suit, rank) for suit in range(SUITS) for rank in range(RANKS)])
+
     public_indexer = handiso.Indexer([3])
     preflop_indexer = handiso.Indexer([2])
     flop_indexer = handiso.Indexer([2, 3])
@@ -136,6 +139,13 @@ def main():
     assert turn_indexer.size(2) == 55190538
     assert river_indexer.size(2) == 55190538
     assert river_indexer.size(3) == 2428287420
+
+    public_hands = [public_indexer.unindex(0, i) for i in range(public_indexer.size(0))]
+    assert len(public_hands) == public_indexer.size(0)
+
+    test_indexer = handiso.Indexer([1, 1])
+    test_hands = [test_indexer.unindex(1, i) for i in range(test_indexer.size(1))]
+    assert len(test_hands) == test_indexer.size(1)
 
 if __name__ == "__main__":
     main()

@@ -187,6 +187,22 @@ static PyObject* py_hand_indexer_size(IndexerObject *self, PyObject *args) {
 	return PyLong_FromLong(hand_indexer_size(&self->indexer, round));
 }
 
+static uint8_t* helper_calloc_cards(IndexerObject* self, int round, int* num_cards) {
+	int n = 0;
+	for (int i = 0; i <= round; i++) {
+		n += self->indexer.cards_per_round[i];
+	}
+	if (num_cards) {
+		*num_cards = n;
+	}
+	uint8_t* cards = calloc(n, n);
+	if (!cards) {
+		PyErr_SetString(HandisoError, "Failed to allocate memory");
+		return NULL;
+	}
+	return cards;
+}
+
 /**
  * Index a hand on the last round.
  *
@@ -203,7 +219,13 @@ static PyObject* py_hand_index_last(IndexerObject *self, PyObject *args) {
 		PyErr_SetString(HandisoError, "Bad argument at 0: list wanted");
 		return NULL;
 	}
-	uint8_t cards[MAX_ROUNDS];
+
+	uint8_t* cards = helper_calloc_cards(self, self->indexer.rounds - 1, NULL);
+	if (!cards) {
+		return NULL;
+	}
+
+	PyObject* result = NULL;
 	int n = helper_parse_uint8s(pycards, cards);
 	if (n < 1) {
 		if (n < 0) {
@@ -211,9 +233,12 @@ static PyObject* py_hand_index_last(IndexerObject *self, PyObject *args) {
 		} else {
 			PyErr_SetString(HandisoError, "Bad argument at 0: length of list must be greater than 0");
 		}
-		return NULL;
+	} else {
+		result = PyLong_FromLongLong(hand_index_last(&self->indexer, cards));
 	}
-	return PyLong_FromLongLong(hand_index_last(&self->indexer, cards));
+
+	free(cards);
+	return result;
 }
 
 /**
@@ -234,7 +259,18 @@ static PyObject* py_hand_index_next_round(IndexerObject *self, PyObject *args) {
 		PyErr_SetString(HandisoError, "Bad argument at 0: list wanted");
 		return NULL;
 	}
-	uint8_t cards[MAX_ROUNDS];
+	StateObject* state = (StateObject*)(pystate);
+	if (state->state.round >= self->indexer.rounds) {
+		PyErr_SetString(HandisoError, "Bad argument at 1: round out of range");
+		return NULL;
+	}
+
+	uint8_t* cards = helper_calloc_cards(self, state->state.round, NULL);
+	if (!cards) {
+		return NULL;
+	}
+
+	PyObject* result = NULL;
 	int n = helper_parse_uint8s(pycards, cards);
 	if (n < 1) {
 		if (n < 0) {
@@ -242,14 +278,17 @@ static PyObject* py_hand_index_next_round(IndexerObject *self, PyObject *args) {
 		} else {
 			PyErr_SetString(HandisoError, "Bad argument at 0: length of list must be greater than 0");
 		}
-		return NULL;
+	} else {
+		StateObject* state = (StateObject*)(pystate);
+		if (state->state.round+1 >= self->indexer.rounds) {
+			PyErr_SetString(HandisoError, "Bad argument at 1: round out of range");
+		} else {
+			result = PyLong_FromLongLong(hand_index_next_round(&self->indexer, cards, &state->state));
+		}
 	}
-	StateObject* state = (StateObject*)(pystate);
-	if (state->state.round+1 >= self->indexer.rounds) {
-		PyErr_SetString(HandisoError, "Bad argument at 1: round out of range");
-		return NULL;
-	}
-	return PyLong_FromLongLong(hand_index_next_round(&self->indexer, cards, &state->state));
+
+	free(cards);
+	return result;
 }
 
 /**
@@ -266,15 +305,35 @@ static PyObject* py_hand_unindex(IndexerObject *self, PyObject *args) {
 		PyErr_SetString(HandisoError, "Bad argument");
 		return NULL;
 	}
-	uint8_t cards[MAX_ROUNDS];
+	if (round < 0 || (hand_index_t)(round) >= self->indexer.rounds) {
+		PyErr_SetString(HandisoError, "Bad argument at 0: round out of range");
+		return NULL;
+	}
+	if (index < 0 || (uint_fast32_t)(index) >= self->indexer.round_size[round]) {
+		PyErr_SetString(HandisoError, "Bad argument at 1: index out of range");
+		return NULL;
+	}
+
+	int num_cards = 0;
+	uint8_t* cards = helper_calloc_cards(self, round, &num_cards);
+	if (!cards) {
+		return NULL;
+	}
+
+	PyObject* list = NULL;
 	if (hand_unindex(&self->indexer, round, index, cards)) {
-		PyObject* list = PyList_New(MAX_ROUNDS);
-		for (int i = 0; i < MAX_ROUNDS; i++) {
+		list = PyList_New(num_cards);
+		for (int i = 0; i < num_cards; i++) {
 			PyList_SetItem(list, i, PyLong_FromLong(cards[i]));
 		}
+	}
+
+	free(cards);
+	if (list == NULL) {
+		Py_RETURN_NONE;
+	} else {
 		return list;
 	}
-	Py_RETURN_NONE;
 }
 
 static PyMethodDef indexerMethods[] = {
@@ -320,7 +379,6 @@ static PyTypeObject StateType = {
     .tp_init = (initproc) py_hand_indexer_state_init,
     .tp_dealloc = (destructor) py_hand_indexer_state_dealloc,
 };
-
 
 static struct PyModuleDef handisomodule = {
 	PyModuleDef_HEAD_INIT,
